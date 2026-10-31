@@ -1,0 +1,35 @@
+# Copy to ./profiles.yml (gitignored) and export the variables from .env.example.
+# dbt finds ./profiles.yml automatically when run from the project root.
+# No secret ever needs to be written into this file.
+medallion_warehouse:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      # Key-pair authentication (recommended). The key file lives outside the repo.
+      authenticator: snowflake_jwt
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', '') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'MEDALLION') }}"
+      # Fallback schema only; layer schemas are set by macros/generate_schema_name.sql.
+      schema: PUBLIC
+      threads: 4
+      query_tag: medallion_warehouse_dev
+
+    ci:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      authenticator: snowflake_jwt
+      # In CI the PEM content is provided through a secret, not a file path.
+      private_key: "{{ env_var('SNOWFLAKE_PRIVATE_KEY') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
+      schema: PUBLIC
+      threads: 4
+      query_tag: medallion_warehouse_ci

@@ -1,0 +1,52 @@
+version: 2
+
+# Unit tests check transformation logic against small fixtures, independently
+# of the seed data. They run as part of `dbt build` (and `dbt test`).
+
+unit_tests:
+  - name: stg_customers_cleans_names_emails_and_blanks
+    description: >
+      Trims and title-cases names (including apostrophes and hyphens), lower-cases
+      email, upper-cases country, and turns blank optional fields into NULL.
+      Added after a manual spot check found INITCAP producing "O'brien".
+    model: stg_customers
+    given:
+      - input: source('bronze', 'raw_customers')
+        rows:
+          - {_record_id: "1", customer_id: " c001 ", first_name: "  mia", last_name: "o'brien-SMITH ", email: " Mia.X@Example.COM ", phone: "", country_code: "es", signup_date: "2024-05-01", updated_at: "2024-05-01 09:00:00", _source_file: "customers.csv", _extracted_at: "2026-01-01T00:00:00Z"}
+    expect:
+      rows:
+        - {customer_id: "C001", first_name: "Mia", last_name: "O'Brien-Smith", email: "mia.x@example.com", phone: null, country_code: "ES"}
+
+  - name: stg_orders_normalizes_status_and_date_formats
+    description: Status variants map to canonical values; both date formats parse; unmapped status -> 'unknown'.
+    model: stg_orders
+    given:
+      - input: source('bronze', 'raw_orders')
+        rows:
+          - {_record_id: "1", order_id: " o1 ", customer_id: "c001", order_date: "2025-03-04", status: "Complete", tax_amount: "1.00", order_total: "11.00", _source_file: "orders.csv", _extracted_at: "2026-01-01T00:00:00Z"}
+          - {_record_id: "2", order_id: "O2", customer_id: "C001", order_date: "2025/03/05", status: " canceled", tax_amount: "0.00", order_total: "0.00", _source_file: "orders.csv", _extracted_at: "2026-01-01T00:00:00Z"}
+          - {_record_id: "3", order_id: "O3", customer_id: "C001", order_date: "2025-03-06", status: "PENDING", tax_amount: "0.00", order_total: "0.00", _source_file: "orders.csv", _extracted_at: "2026-01-01T00:00:00Z"}
+          - {_record_id: "4", order_id: "O4", customer_id: "C001", order_date: "04/03/2025", status: "shipped", tax_amount: "0.00", order_total: "0.00", _source_file: "orders.csv", _extracted_at: "2026-01-01T00:00:00Z"}
+    expect:
+      rows:
+        - {order_id: "O1", customer_id: "C001", order_date: "2025-03-04", order_status: "completed"}
+        - {order_id: "O2", customer_id: "C001", order_date: "2025-03-05", order_status: "cancelled"}
+        - {order_id: "O3", customer_id: "C001", order_date: "2025-03-06", order_status: "pending"}
+        - {order_id: "O4", customer_id: "C001", order_date: null, order_status: "unknown"}
+
+  - name: int_customers_deduplicated_latest_then_record_id_wins
+    description: Latest source_updated_at wins; on an exact tie the higher source_record_id wins.
+    model: int_customers_deduplicated
+    given:
+      - input: ref('stg_customers')
+        rows:
+          - {source_record_id: 1, customer_id: "C1", email: "old@example.com", source_updated_at: "2024-01-01 00:00:00"}
+          - {source_record_id: 2, customer_id: "C1", email: "new@example.com", source_updated_at: "2025-01-01 00:00:00"}
+          - {source_record_id: 3, customer_id: "C1", email: "stale@example.com", source_updated_at: "2024-06-01 00:00:00"}
+          - {source_record_id: 4, customer_id: "C2", email: "first@example.com", source_updated_at: "2025-01-01 00:00:00"}
+          - {source_record_id: 5, customer_id: "C2", email: "second@example.com", source_updated_at: "2025-01-01 00:00:00"}
+    expect:
+      rows:
+        - {customer_id: "C1", email: "new@example.com", winning_source_record_id: 2, source_record_count: 3}
+        - {customer_id: "C2", email: "second@example.com", winning_source_record_id: 5, source_record_count: 2}

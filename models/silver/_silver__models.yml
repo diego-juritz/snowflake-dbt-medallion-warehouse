@@ -1,0 +1,275 @@
+version: 2
+
+models:
+  # ---------------------------------------------------------------- staging
+  - name: stg_customers
+    description: >
+      Typed and cleaned customer records. Grain: one row per RAW record
+      (duplicates by customer_id are expected and resolved downstream).
+    columns:
+      - name: source_record_id
+        description: Row position in the raw export; unique tie-breaker for dedup.
+        data_tests: [unique, not_null]
+      - name: customer_id
+        description: Business key from the source system (upper-cased, trimmed).
+        data_tests: [not_null]
+      - name: first_name
+        description: Trimmed, INITCAP first name.
+      - name: last_name
+        description: Trimmed, INITCAP last name.
+      - name: email
+        description: Trimmed, lower-cased email. Fictional example.com addresses.
+      - name: phone
+        description: Optional; NULL when blank in the source.
+      - name: country_code
+        description: ISO-3166 alpha-2 country, upper-cased; NULL when blank.
+      - name: signup_date
+        data_tests: [not_null]
+      - name: source_updated_at
+        description: Source-system last-modified time; primary dedup ordering key.
+        data_tests: [not_null]
+      - name: source_file
+      - name: source_extracted_at
+        description: Simulated export time from the file metadata (not a load time).
+
+  - name: stg_products
+    description: "Typed and cleaned product catalog. Grain: one row per product."
+    columns:
+      - name: source_record_id
+      - name: product_id
+        data_tests: [unique, not_null]
+      - name: product_name
+        data_tests: [not_null]
+      - name: category
+        description: INITCAP category; NULL when missing in the source.
+      - name: list_price
+        description: Current catalog price.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: is_active
+        data_tests: [not_null]
+      - name: source_file
+      - name: source_extracted_at
+
+  - name: stg_orders
+    description: "Typed order headers with canonical status. Grain: one row per order."
+    columns:
+      - name: source_record_id
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        description: >
+          Customer business key as sent by the source. One order (O0047)
+          intentionally references a customer that does not exist; this test
+          WARNS by default and ERRORS with --vars '{strict_referential_integrity: true}'.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_customers')
+                field: customer_id
+              config:
+                severity: "{{ 'error' if var('strict_referential_integrity') else 'warn' }}"
+      - name: order_date
+        description: Parsed from ISO (YYYY-MM-DD) or YYYY/MM/DD source text.
+        data_tests: [not_null]
+      - name: order_status
+        description: Canonical status. completed | pending | cancelled.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [completed, pending, cancelled]
+      - name: raw_status
+        description: Lower-cased, trimmed source status, kept for auditability.
+      - name: tax_amount
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: source_order_total
+        description: Order total as stated by the source (reconciled by a singular test).
+      - name: source_file
+      - name: source_extracted_at
+
+  - name: stg_order_items
+    description: "Typed order lines with gross/net line amounts. Grain: one row per order line."
+    columns:
+      - name: source_record_id
+      - name: order_item_id
+        data_tests: [unique, not_null]
+      - name: order_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_orders')
+                field: order_id
+      - name: product_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_products')
+                field: product_id
+      - name: quantity
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: unit_price
+        description: Price charged on this line.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: discount_amount
+        description: Line discount; 0 when absent.
+        data_tests: [not_null]
+      - name: gross_sales_amount
+        description: quantity * unit_price.
+      - name: net_sales_amount
+        description: gross_sales_amount - discount_amount (excludes tax).
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: source_file
+
+  - name: stg_payments
+    description: "Typed payment events. Grain: one row per payment event."
+    columns:
+      - name: source_record_id
+      - name: payment_id
+        data_tests: [unique, not_null]
+      - name: order_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_orders')
+                field: order_id
+      - name: payment_method
+        description: Normalized snake_case method.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [credit_card, paypal, bank_transfer, gift_card]
+      - name: payment_status
+        description: success | pending | failed | refunded. Refund amounts are positive.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [success, pending, failed, refunded]
+      - name: amount
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: payment_date
+        data_tests: [not_null]
+      - name: source_file
+
+  # ----------------------------------------------------------- intermediate
+  - name: int_customers_deduplicated
+    description: >
+      Type 1 customer deduplication. Grain: one row per customer_id. Latest
+      source_updated_at wins; ties broken by the highest source_record_id.
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: first_name
+      - name: last_name
+      - name: email
+      - name: phone
+      - name: country_code
+      - name: signup_date
+      - name: source_updated_at
+      - name: winning_source_record_id
+        description: source_record_id of the record that won deduplication.
+      - name: source_record_count
+        description: Number of raw records that shared this customer_id.
+
+  - name: int_payments_by_order
+    description: Payment events pre-aggregated to the order grain (prevents fan-out).
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: payment_event_count
+      - name: amount_captured
+        description: Sum of successful payments.
+      - name: amount_refunded
+      - name: amount_pending
+      - name: amount_failed
+      - name: net_amount_paid
+        description: amount_captured - amount_refunded.
+      - name: failed_payment_count
+      - name: payment_methods
+        description: Comma-separated distinct methods used.
+      - name: first_payment_date
+      - name: last_payment_date
+
+  - name: int_orders_enriched
+    description: "Order header joined to order-grain item and payment aggregates. Grain: one row per order."
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+      - name: has_valid_customer
+        description: False when customer_id has no match in int_customers_deduplicated.
+      - name: order_date
+      - name: order_status
+      - name: is_revenue_recognized
+        description: True only for completed orders.
+      - name: item_count
+      - name: total_quantity
+      - name: gross_sales_amount
+      - name: discount_amount
+      - name: net_sales_amount
+      - name: tax_amount
+      - name: order_total_amount
+        description: net_sales_amount + tax_amount, recomputed from lines.
+      - name: source_order_total
+      - name: payment_event_count
+      - name: amount_captured
+      - name: amount_refunded
+      - name: amount_pending
+      - name: net_amount_paid
+      - name: failed_payment_count
+      - name: payment_methods
+      - name: payment_status
+        description: Derived order payment status.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [paid, partially_paid, payment_pending, refunded, unpaid]
+
+  - name: int_order_exceptions
+    description: >
+      Exception register. Grain: one row per (order_id, exception_type).
+      Flagged orders are kept in the pipeline; this model makes them visible.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [order_id, exception_type]
+    columns:
+      - name: order_id
+        data_tests: [not_null]
+      - name: exception_type
+        description: >
+          orphan_customer is the only type expected in the sample data. Any
+          other type means a new data problem and fails the build.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [orphan_customer]
+      - name: detail

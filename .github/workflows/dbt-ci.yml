@@ -1,0 +1,131 @@
+name: dbt CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dbt-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Always runs. Needs no Snowflake access and spends no Snowflake credits.
+  # Static validation is NOT equivalent to running the models and tests.
+  # ---------------------------------------------------------------------------
+  static-validation:
+    name: Static validation (no Snowflake)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check repository structure
+        run: |
+          for f in dbt_project.yml packages.yml package-lock.yml profiles.yml.example \
+                   requirements.txt data/_seeds.yml models/bronze/_bronze__sources.yml \
+                   models/silver/_silver__models.yml models/gold/_gold__models.yml \
+                   macros/generate_schema_name.sql analyses/business_questions.sql; do
+            test -f "$f" || { echo "::error::missing $f"; exit 1; }
+          done
+          if git ls-files | grep -E '(^|/)(profiles\.yml|\.env)$|\.(p8|pem|key)$|^target/|^logs/'; then
+            echo "::error::credentials or generated artifacts are tracked"; exit 1
+          fi
+
+      - name: Python syntax
+        run: python -m py_compile scripts/*.py
+
+      - name: Sample data is deterministic and internally consistent
+        run: |
+          python scripts/generate_sample_data.py --check
+          python scripts/validate_sample_data.py
+
+      - name: Install dbt packages
+        run: dbt deps
+
+      # dbt parse needs a profile but does not open a connection. These values
+      # are syntactically valid placeholders, not credentials; no Snowflake call
+      # is made in this job.
+      - name: dbt parse (project, YAML, Jinja, refs, test configs)
+        env:
+          SNOWFLAKE_ACCOUNT: placeholder
+          SNOWFLAKE_USER: placeholder
+          SNOWFLAKE_PRIVATE_KEY: placeholder
+          SNOWFLAKE_ROLE: placeholder
+          SNOWFLAKE_WAREHOUSE: placeholder
+          SNOWFLAKE_DATABASE: placeholder
+        run: |
+          cp profiles.yml.example profiles.yml
+          dbt parse --target ci --no-partial-parse --show-all-deprecations --warn-error
+          dbt ls --target ci --resource-type model --resource-type seed --resource-type test --output name | sort > /tmp/nodes.txt
+          echo "Parsed $(wc -l < /tmp/nodes.txt) nodes"
+
+  # ---------------------------------------------------------------------------
+  # Optional. Runs only when the repository variable SNOWFLAKE_CI_ENABLED is
+  # "true" (set it after configuring the secrets) and never for pull requests
+  # from forks, which cannot read secrets. Builds into isolated, throw-away
+  # schemas CI_<run>_BRONZE/SILVER/GOLD and drops them afterwards.
+  # ---------------------------------------------------------------------------
+  snowflake-integration:
+    name: dbt build on Snowflake (isolated CI schemas)
+    needs: static-validation
+    if: >-
+      vars.SNOWFLAKE_CI_ENABLED == 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: dbt-ci-snowflake
+      cancel-in-progress: false
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      DBT_SCHEMA_PREFIX: CI_${{ github.run_id }}_${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt
+
+      - name: Configure profile
+        run: cp profiles.yml.example profiles.yml
+
+      - name: dbt deps and debug
+        run: |
+          dbt deps
+          dbt debug --target ci
+
+      - name: dbt build (seeds, models, data tests, unit tests)
+        run: dbt build --target ci
+
+      - name: Drop CI schemas
+        if: always()
+        run: dbt run-operation drop_ci_schemas --target ci

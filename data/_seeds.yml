@@ -1,0 +1,82 @@
+version: 2
+
+# Every seed column is VARCHAR: the raw landing zone keeps the source text exactly
+# as exported (mixed date formats, stray spaces, inconsistent casing). Typing and
+# cleaning happen in Silver, where the rules are explicit and tested.
+
+seeds:
+  - name: customers
+    description: Raw customer export. Contains duplicate business keys by design.
+    config:
+      alias: raw_customers
+      column_types:
+        _record_id: varchar
+        customer_id: varchar
+        first_name: varchar
+        last_name: varchar
+        email: varchar
+        phone: varchar
+        country_code: varchar
+        signup_date: varchar
+        updated_at: varchar
+        _source_file: varchar
+        _extracted_at: varchar
+
+  - name: products
+    description: Raw product catalog export.
+    config:
+      alias: raw_products
+      column_types:
+        _record_id: varchar
+        product_id: varchar
+        product_name: varchar
+        category: varchar
+        unit_price: varchar
+        is_active: varchar
+        _source_file: varchar
+        _extracted_at: varchar
+
+  - name: orders
+    description: Raw order headers.
+    config:
+      alias: raw_orders
+      column_types:
+        _record_id: varchar
+        order_id: varchar
+        customer_id: varchar
+        order_date: varchar
+        status: varchar
+        tax_amount: varchar
+        order_total: varchar
+        _source_file: varchar
+        _extracted_at: varchar
+
+  - name: order_items
+    description: Raw order lines.
+    config:
+      alias: raw_order_items
+      column_types:
+        _record_id: varchar
+        order_item_id: varchar
+        order_id: varchar
+        product_id: varchar
+        quantity: varchar
+        unit_price: varchar
+        discount_amount: varchar
+        _source_file: varchar
+        _extracted_at: varchar
+
+  - name: payments
+    description: Raw payment events. An order can have several events.
+    config:
+      alias: raw_payments
+      column_types:
+        _record_id: varchar
+        payment_id: varchar
+        order_id: varchar
+        payment_method: varchar
+        payment_status: varchar
+        amount: varchar
+        payment_date: varchar
+        _source_file: varchar
+        _extracted_at: varchar

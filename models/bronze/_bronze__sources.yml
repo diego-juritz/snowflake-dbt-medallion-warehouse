@@ -1,0 +1,46 @@
+version: 2
+
+# Bronze = the raw landing zone. In this educational project `dbt seed` plays the
+# role of the ingestion tool and writes these tables; in production a tool such
+# as Snowpipe, Openflow, or Fivetran would. Models read them through source() so
+# the transformation layer does not depend on how the data was loaded.
+
+sources:
+  - name: bronze
+    description: Raw, unmodified e-commerce exports (all columns VARCHAR).
+    database: "{{ target.database }}"
+    schema: "{{ (env_var('DBT_SCHEMA_PREFIX', '') | trim | upper ~ '_') if (env_var('DBT_SCHEMA_PREFIX', '') | trim) else '' }}BRONZE"
+    config:
+      meta:
+        loader: dbt seed (simulated ingestion)
+    tables:
+      - name: raw_customers
+        description: >
+          Customer export. One row per exported record, not per customer:
+          a customer_id can appear several times (re-exports / updates).
+        columns:
+          - name: _record_id
+            description: Position of the record in the export file; unique per file.
+            data_tests: [unique, not_null]
+          - name: customer_id
+            data_tests: [not_null]
+
+      - name: raw_products
+        columns:
+          - name: product_id
+            data_tests: [unique, not_null]
+
+      - name: raw_orders
+        columns:
+          - name: order_id
+            data_tests: [unique, not_null]
+
+      - name: raw_order_items
+        columns:
+          - name: order_item_id
+            data_tests: [unique, not_null]
+
+      - name: raw_payments
+        columns:
+          - name: payment_id
+            data_tests: [unique, not_null]

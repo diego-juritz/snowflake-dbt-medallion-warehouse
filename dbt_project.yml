@@ -1,0 +1,46 @@
+name: medallion_warehouse
+version: "1.0.0"
+config-version: 2
+profile: medallion_warehouse
+
+model-paths: ["models"]
+seed-paths: ["data"]
+test-paths: ["tests"]
+analysis-paths: ["analyses"]
+macro-paths: ["macros"]
+
+clean-targets: ["target", "dbt_packages", "logs"]
+
+flags:
+  require_generic_test_arguments_property: true
+
+vars:
+  # Bounded, reproducible calendar for dim_date (covers signup and order dates).
+  dim_date_start: "2024-01-01"
+  dim_date_end: "2026-12-31"
+  # Business key of the "Unknown customer" member in dim_customers.
+  unknown_member_id: "-1"
+  # When true, referential-integrity warnings on Silver become errors.
+  # See docs/design_decisions.md#controlled-failure-demo
+  strict_referential_integrity: false
+
+seeds:
+  medallion_warehouse:
+    # Seeds simulate the raw landing zone. They land in the BRONZE schema with
+    # every column typed as VARCHAR so the raw text is preserved exactly.
+    +schema: bronze
+    +quote_columns: false
+    +full_refresh: true
+
+models:
+  medallion_warehouse:
+    silver:
+      +schema: silver
+      +materialized: view
+    gold:
+      +schema: gold
+      +materialized: table
+
+data_tests:
+  medallion_warehouse:
+    +severity: error

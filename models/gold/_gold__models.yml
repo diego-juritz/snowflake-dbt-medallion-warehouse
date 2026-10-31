@@ -1,0 +1,165 @@
+version: 2
+
+models:
+  - name: dim_customers
+    description: >
+      Customer dimension (SCD Type 1). Grain: one row per customer, plus one
+      "Unknown customer" member (customer_id = '-1') for orphan fact rows.
+    columns:
+      - name: customer_key
+        description: MD5 surrogate key of customer_id (dbt_utils.generate_surrogate_key).
+        data_tests: [unique, not_null]
+      - name: customer_id
+        description: Business key.
+        data_tests: [unique, not_null]
+      - name: first_name
+      - name: last_name
+      - name: full_name
+      - name: email
+      - name: phone
+      - name: country_code
+        description: ISO alpha-2, or UNKNOWN when missing.
+        data_tests: [not_null]
+      - name: signup_date
+      - name: source_record_count
+        description: Raw records merged into this row by deduplication.
+      - name: is_unknown_member
+        data_tests: [not_null]
+
+  - name: dim_products
+    description: "Product dimension. Grain: one row per product."
+    columns:
+      - name: product_key
+        data_tests: [unique, not_null]
+      - name: product_id
+        data_tests: [unique, not_null]
+      - name: product_name
+      - name: category
+        description: Standardized category; 'Uncategorized' when missing.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Electronics, Furniture, Home Office, Stationery, Accessories, Uncategorized]
+      - name: list_price
+      - name: is_active
+
+  - name: dim_date
+    description: >
+      Calendar dimension. Grain: one row per day between vars dim_date_start and
+      dim_date_end (inclusive).
+    columns:
+      - name: date_key
+        description: Integer YYYYMMDD.
+        data_tests: [unique, not_null]
+      - name: date_day
+        data_tests: [unique, not_null]
+      - name: calendar_year
+      - name: calendar_quarter
+      - name: calendar_month
+      - name: month_short_name
+      - name: year_month
+        description: YYYY-MM label.
+      - name: month_start_date
+      - name: iso_day_of_week
+        description: 1 = Monday ... 7 = Sunday.
+      - name: day_short_name
+      - name: is_weekend
+
+  - name: fct_orders
+    description: >
+      Order fact. Grain: one row per order. Holds order-level measures
+      (merchandise, tax, total, payments). Sales metrics should filter on
+      is_revenue_recognized.
+    columns:
+      - name: order_key
+        data_tests: [unique, not_null]
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: customer_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_key
+      - name: source_customer_id
+        description: customer_id as received, kept for traceability of orphan orders.
+      - name: has_valid_customer
+      - name: order_date_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: order_date
+      - name: order_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [completed, pending, cancelled]
+      - name: is_revenue_recognized
+      - name: payment_status
+      - name: item_count
+      - name: total_quantity
+      - name: gross_sales_amount
+        description: Sum of quantity * unit_price over the order's lines.
+      - name: discount_amount
+      - name: net_sales_amount
+        description: gross_sales_amount - discount_amount. Excludes tax.
+      - name: tax_amount
+      - name: order_total_amount
+        description: Order value = net_sales_amount + tax_amount.
+      - name: amount_captured
+      - name: amount_refunded
+      - name: net_amount_paid
+      - name: outstanding_amount
+        description: order_total_amount - net_amount_paid; 0 for cancelled orders.
+      - name: failed_payment_count
+      - name: payment_methods
+
+  - name: fct_order_items
+    description: >
+      Order line fact. Grain: one row per order line. Line-level measures only;
+      tax and payments are not allocated to lines.
+    columns:
+      - name: order_item_key
+        data_tests: [unique, not_null]
+      - name: order_item_id
+        data_tests: [unique, not_null]
+      - name: order_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_orders')
+                field: order_key
+      - name: order_id
+      - name: customer_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_key
+      - name: product_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: product_key
+      - name: order_date_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: order_status
+      - name: is_revenue_recognized
+      - name: quantity
+      - name: unit_price
+      - name: gross_sales_amount
+      - name: discount_amount
+      - name: net_sales_amount

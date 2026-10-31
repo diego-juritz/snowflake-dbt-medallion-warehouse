@@ -1,0 +1,16 @@
+_record_id,product_id,product_name,category,unit_price,is_active,_source_file,_extracted_at
+1,P001,Wireless Mouse,Electronics,24.99,true,products.csv,2026-01-01T00:00:00Z
+2,P002,Mechanical Keyboard,electronics,89.99,true,products.csv,2026-01-01T00:00:00Z
+3,P003,USB-C Hub, ELECTRONICS ,39.99,TRUE,products.csv,2026-01-01T00:00:00Z
+4,P004,27in Monitor,Electronics,279.00,true,products.csv,2026-01-01T00:00:00Z
+5,P005,Noise-Cancelling Headphones,Electronics,199.00,true,products.csv,2026-01-01T00:00:00Z
+6,P006,Standing Desk,Furniture,449.00,true,products.csv,2026-01-01T00:00:00Z
+7,P007,Ergonomic Chair,furniture,329.00,true,products.csv,2026-01-01T00:00:00Z
+8,P008,Desk Lamp,Home Office,34.50,true,products.csv,2026-01-01T00:00:00Z
+9,P009,Notebook Set,Stationery,12.99,true,products.csv,2026-01-01T00:00:00Z
+10,P010,Gel Pens (12 pack),stationery,8.99,true,products.csv,2026-01-01T00:00:00Z
+11,P011,Laptop Sleeve,Accessories,29.99,true,products.csv,2026-01-01T00:00:00Z
+12,P012,Webcam HD,Electronics,69.99,false,products.csv,2026-01-01T00:00:00Z
+13,P013,Cable Organizer,,14.99,true,products.csv,2026-01-01T00:00:00Z
+14,P014,Monitor Arm,Furniture,119.00,True,products.csv,2026-01-01T00:00:00Z
+15,P015,Coffee Mug,Home Office,15.99,true,products.csv,2026-01-01T00:00:00Z

@@ -1,0 +1,30 @@
+# dbt
+target/
+dbt_packages/
+logs/
+.user.yml
+profiles.yml
+
+# Credentials and local environment
+.env
+.env.*
+!.env.example
+*.p8
+*.pem
+*.key
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+
+# Local working notes (not part of the project)
+prompt.txt
